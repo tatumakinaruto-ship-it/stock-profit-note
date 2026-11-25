@@ -1,0 +1,11 @@
+{
+  "name": "株式損益ノート",
+  "short_name": "損益ノート",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6fa",
+  "theme_color": "#101827",
+  "description": "マネックス証券などの取引CSVを読み込み、株式の損益を管理する個人用ツール"
+}

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101827"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><link rel="manifest" href="./manifest.webmanifest"><title>株式損益ノート</title>
+<style>
+:root{--bg:#f4f6fa;--card:#fff;--ink:#172033;--muted:#687386;--line:#e4e8ef;--green:#07865b;--red:#d04444;--blue:#315ee8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header{background:#101827;color:#fff;padding:22px 18px 18px}header h1{font-size:21px;margin:0 0 5px}header p{font-size:12px;color:#bdc7d7;margin:0}
+main{max-width:900px;margin:auto;padding:14px 13px 40px}.tabs{display:flex;gap:7px;overflow:auto;margin-bottom:13px}.tab{border:1px solid var(--line);background:#fff;border-radius:20px;padding:9px 14px;white-space:nowrap;font-weight:600;color:#455064}.tab.active{background:#172033;color:#fff;border-color:#172033}
+.panel{display:none}.panel.active{display:block}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:11px;min-width:0}.metric small{color:var(--muted);display:block;font-size:12px}.metric strong{font-size:23px;display:block;margin-top:7px;overflow-wrap:anywhere}.pos{color:var(--green)}.neg{color:var(--red)}h2{font-size:16px;margin:4px 0 12px}h3{font-size:14px;margin:0 0 9px}.muted{color:var(--muted);font-size:12px;line-height:1.6}
+button,.filebtn{border:0;background:var(--blue);color:white;padding:11px 14px;border-radius:10px;font-weight:650;font-size:14px;display:inline-block;cursor:pointer}button.secondary{background:#edf1f7;color:#263247}button.danger{background:#fff0f0;color:#b32d2d}.filebtn input{display:none}input,select{width:100%;border:1px solid #d8deea;border-radius:9px;padding:10px;background:#fff;color:var(--ink);font-size:14px}label{font-size:12px;color:var(--muted);display:block;margin:9px 0 5px}.row{display:grid;grid-template-columns:1fr 1fr;gap:9px}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}th,td{text-align:right;padding:9px 7px;border-bottom:1px solid var(--line)}th:first-child,td:first-child{text-align:left}th{color:var(--muted);font-weight:600}.empty{padding:18px;text-align:center;color:var(--muted);font-size:13px}.barrow{display:grid;grid-template-columns:65px 1fr 88px;gap:8px;align-items:center;margin:9px 0;font-size:12px}.track{height:9px;background:#edf0f5;border-radius:10px;overflow:hidden}.bar{height:100%;background:#315ee8;border-radius:10px}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.notice{background:#fff8e7;border:1px solid #f1dfae;padding:11px;border-radius:10px;color:#755519;font-size:12px;line-height:1.6}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.hide{display:none!important}
+@media(min-width:650px){.grid{grid-template-columns:repeat(4,1fr)}main{padding-top:20px}.formgrid{grid-template-columns:repeat(3,1fr)}}
+</style></head>
+<body>
+<header><h1>株式損益ノート</h1><p>CSV取込で、銘柄別・月別の損益をまとめる個人用ツール</p></header>
+<main>
+<div class="tabs">
+<button class="tab active" data-tab="dash">ダッシュボード</button><button class="tab" data-tab="stocks">銘柄別</button><button class="tab" data-tab="history">売買履歴</button><button class="tab" data-tab="import">CSV取込・設定</button>
+</div>
+<section id="dash" class="panel active">
+<div class="grid">
+<div class="card metric"><small>確定損益（JPY換算）</small><strong id="realJ">¥0</strong></div>
+<div class="card metric"><small>含み損益（JPY換算）</small><strong id="unrealJ">¥0</strong></div>
+<div class="card metric"><small>確定損益（USD建て）</small><strong id="realU">$0.00</strong></div>
+<div class="card metric"><small>含み損益（USD建て）</small><strong id="unrealU">$0.00</strong></div>
+</div>
+<div class="card"><h2>売買成績</h2><div class="grid">
+<div class="metric"><small>勝率（決済単位）</small><strong id="winrate">—</strong></div>
+<div class="metric"><small>平均利益</small><strong id="avgwin">—</strong></div>
+<div class="metric"><small>平均損失</small><strong id="avgloss">—</strong></div>
+<div class="metric"><small>保有銘柄数</small><strong id="holdingCount">0</strong></div>
+</div><p class="muted">勝率・平均利益/損失はFIFO方式で計算した決済ロット単位です。</p></div>
+<div class="card"><h2>月別確定損益（JPY換算）</h2><div id="monthly" class="empty">取引履歴を読み込むと表示されます。</div></div>
+<div class="card"><h2>含み損益の設定</h2><p class="muted">保有銘柄ごとに現在価格を入力すると含み損益を計算します。為替レートは下の設定で指定します。</p><div id="priceInputs"></div></div>
+</section>
+<section id="stocks" class="panel"><div class="card"><h2>銘柄別損益</h2><div class="scroll"><table><thead><tr><th>銘柄</th><th>保有数量</th><th>確定損益(JPY)</th><th>含み損益(JPY)</th></tr></thead><tbody id="stockRows"></tbody></table></div><div id="stockEmpty" class="empty">取引履歴がありません。</div></div></section>
+<section id="history" class="panel"><div class="card"><h2>売買履歴</h2><div class="scroll"><table><thead><tr><th>日付</th><th>銘柄</th><th>売買</th><th>数量</th><th>単価</th><th>通貨</th></tr></thead><tbody id="historyRows"></tbody></table></div><div id="historyEmpty" class="empty">取引履歴がありません。</div></div></section>
+<section id="import" class="panel">
+<div class="card"><h2>1. CSVファイルを読み込む</h2><p class="muted">マネックス証券から出力したCSVを選択してください。文字コードはUTF-8/Shift-JISを想定します。まずヘッダーを確認し、列の対応付けを行います。</p><label class="filebtn">CSVファイルを選択<input id="csvFile" type="file" accept=".csv,text/csv"></label><div id="mapping" class="hide">
+<div class="notice" style="margin-top:12px">CSVの列名と内容を確認し、各項目を選択してください。売買区分は「買/買付/BUY」「売/売却/SELL」などを判定します。形式が異なる場合は、読み込み前に列を調整してください。</div>
+<div class="formgrid" id="mapFields"></div>
+<div class="actions"><button id="doImport">この設定で取り込む</button><button class="secondary" id="cancelImport">キャンセル</button></div>
+</div></div>
+<div class="card"><h2>2. 手動で取引を追加</h2><div class="formgrid">
+<div><label>取引日</label><input id="mDate" type="date"></div><div><label>銘柄コード/ティッカー</label><input id="mSymbol" placeholder="NVDA"></div><div><label>売買</label><select id="mSide"><option value="BUY">買付</option><option value="SELL">売却</option></select></div>
+<div><label>数量</label><input id="mQty" type="number" step="any"></div><div><label>単価</label><input id="mPrice" type="number" step="any"></div><div><label>通貨</label><select id="mCurrency"><option>USD</option><option>JPY</option></select></div>
+<div><label>手数料（取引通貨）</label><input id="mFee" type="number" step="any" value="0"></div><div><label>取引時USD/JPY（USDの場合）</label><input id="mFx" type="number" step="any" placeholder="例 150.00"></div>
+</div><div class="actions"><button id="addManual">取引を追加</button></div></div>
+<div class="card"><h2>3. 為替・データ管理</h2><div class="row"><div><label>現在のUSD/JPY（含み損益換算用）</label><input id="fxNow" type="number" step="any" value="150"></div><div><label>表示用メモ</label><input id="fxNote" value="手動設定"></div></div><div class="actions"><button id="saveFx">為替を保存</button><button class="secondary" id="export">取引データを書き出す</button><button class="danger" id="clear">全データ削除</button></div><p class="muted">データはこのブラウザ内に保存されます。Safariの履歴/ウェブサイトデータを消去すると消える場合があります。定期的に書き出してください。</p></div>
+</section>
+<p class="muted">計算上の注意：確定損益はFIFO（先に買った株から売却）で概算。米国株の税金、源泉徴収、為替差損益、株式分割、配当、端株調整等は完全再現しません。CSVの列構成によっては読み込み前の調整が必要です。</p>
+</main>
+<script>
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js').catch(()=>{}));}
+const $=id=>document.getElementById(id);
+let trades=JSON.parse(localStorage.getItem('stocknote_trades')||'[]'), prices=JSON.parse(localStorage.getItem('stocknote_prices')||'{}'), fx=Number(localStorage.getItem('stocknote_fx')||150), pendingRows=[], headers=[];
+const save=()=>{localStorage.setItem('stocknote_trades',JSON.stringify(trades));localStorage.setItem('stocknote_prices',JSON.stringify(prices));localStorage.setItem('stocknote_fx',String(fx));};
+const fmt=(n,c='JPY')=>c==='USD'?'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'¥'+Math.round(n||0).toLocaleString('ja-JP');
+const cls=n=>n>0?'pos':n<0?'neg':'';
+function parseDate(v){if(!v)return '';let s=String(v).trim().replace(/[年月]/g,'-').replace(/[日]/g,'');let m=s.match(/(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/);if(m)return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;return s.slice(0,10)}
+function calc(){
+ let lots={}, realized=[], byMonth={}, totals={}, holdings=[];
+ const sorted=[...trades].sort((a,b)=>a.date.localeCompare(b.date));
+ for(const t of sorted){let sym=t.symbol.toUpperCase(),cur=t.currency||'USD',rate=cur==='USD'?(Number(t.fx)||fx):1, qty=Number(t.qty), price=Number(t.price), fee=Number(t.fee)||0;
+ if(!lots[sym])lots[sym]=[];if(!totals[sym])totals[sym]={realJ:0,realU:0,qty:0,avg:0,currency:cur};
+ if(t.side==='BUY'){lots[sym].push({qty,price,feePer:fee/(qty||1),currency:cur,fx:rate});}
+ else {let left=qty;while(left>1e-8&&lots[sym].length){let lot=lots[sym][0],take=Math.min(left,lot.qty),gross=(price-lot.price)*take-(lot.feePer+fee/(qty||1))*take;let r=cur==='USD'?gross*rate:gross;realized.push({date:t.date,symbol:sym,pnl:r,pnlU:cur==='USD'?gross:null,currency:cur});totals[sym].realJ+=r;if(cur==='USD')totals[sym].realU+=gross;lot.qty-=take;left-=take;if(lot.qty<1e-8)lots[sym].shift();}}
+ }
+ for(const [sym,arr] of Object.entries(lots)){let qty=arr.reduce((s,l)=>s+l.qty,0);let cost=arr.reduce((s,l)=>s+l.qty*l.price,0);let cur=arr[0]?.currency||'USD';let avg=qty?cost/qty:0;let cp=Number(prices[sym]||0);let u=cp?arr.reduce((s,l)=>s+(cp-l.price)*l.qty,0):0;let rate=cur==='USD'?fx:1;totals[sym].qty=qty;totals[sym].avg=avg;totals[sym].unrealJ=u*rate;totals[sym].unrealU=cur==='USD'?u:0;totals[sym].currency=cur;holdings.push({symbol:sym,qty,avg,cur,cp,unrealJ:u*rate,realJ:totals[sym].realJ});}
+ realized.forEach(r=>{let m=r.date.slice(0,7);byMonth[m]=(byMonth[m]||0)+r.pnl});
+ return {totals,realized,byMonth,holdings};
+}
+function render(){let c=calc(),rj=Object.values(c.totals).reduce((s,x)=>s+x.realJ,0),uj=c.holdings.reduce((s,x)=>s+x.unrealJ,0),ru=Object.values(c.totals).reduce((s,x)=>s+x.realU,0),uu=c.holdings.reduce((s,x)=>s+x.unrealU,0);
+ $('realJ').textContent=fmt(rj);$('realJ').className=cls(rj);$('unrealJ').textContent=fmt(uj);$('unrealJ').className=cls(uj);$('realU').textContent=fmt(ru,'USD');$('realU').className=cls(ru);$('unrealU').textContent=fmt(uu,'USD');$('unrealU').className=cls(uu);
+ let wins=c.realized.filter(x=>x.pnl>0),loss=c.realized.filter(x=>x.pnl<0);$('winrate').textContent=c.realized.length?(wins.length/c.realized.length*100).toFixed(1)+'%':'—';$('avgwin').textContent=wins.length?fmt(wins.reduce((s,x)=>s+x.pnl,0)/wins.length):'—';$('avgloss').textContent=loss.length?fmt(loss.reduce((s,x)=>s+x.pnl,0)/loss.length):'—';$('holdingCount').textContent=c.holdings.filter(x=>x.qty>0).length;
+ let months=Object.entries(c.byMonth).sort();if(months.length){let max=Math.max(1,...months.map(x=>Math.abs(x[1])));$('monthly').innerHTML=months.map(([m,v])=>`<div class="barrow"><b>${m}</b><div class="track"><div class="bar" style="width:${Math.abs(v)/max*100}%;background:${v<0?'#d04444':'#07865b'}"></div></div><span class="${cls(v)}">${fmt(v)}</span></div>`).join('')}else $('monthly').textContent='取引履歴を読み込むと表示されます。';
+ $('stockRows').innerHTML=c.holdings.map(x=>`<tr><td>${esc(x.symbol)}</td><td>${x.qty.toLocaleString()}</td><td class="${cls(x.realJ)}">${fmt(x.realJ)}</td><td class="${cls(x.unrealJ)}">${x.cp?fmt(x.unrealJ):'価格未設定'}</td></tr>`).join('');$('stockEmpty').classList.toggle('hide',c.holdings.length>0);
+ $('historyRows').innerHTML=[...trades].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`<tr><td>${esc(t.date)}</td><td>${esc(t.symbol)}</td><td>${t.side==='BUY'?'買付':'売却'}</td><td>${t.qty}</td><td>${t.price}</td><td>${t.currency}</td></tr>`).join('');$('historyEmpty').classList.toggle('hide',trades.length>0);
+ $('priceInputs').innerHTML=c.holdings.filter(x=>x.qty>0).map(x=>`<div class="row" style="margin:8px 0"><div><label>${esc(x.symbol)} 現在価格 (${x.cur})</label><input type="number" step="any" data-price="${esc(x.symbol)}" value="${prices[x.symbol]||''}" placeholder="現在価格"></div><div style="display:flex;align-items:end"><button class="secondary" onclick="setPrice('${esc(x.symbol)}')">価格を保存</button></div></div>`).join('')||'<div class="empty">保有銘柄がありません。</div>';
+ $('fxNow').value=fx;
+}
+function setPrice(sym){let el=document.querySelector(`[data-price="${CSS.escape(sym)}"]`);prices[sym]=Number(el.value);save();render()}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.panel').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));});
+$('addManual').onclick=()=>{let t={date:$('mDate').value,symbol:$('mSymbol').value.trim(),side:$('mSide').value,qty:Number($('mQty').value),price:Number($('mPrice').value),currency:$('mCurrency').value,fee:Number($('mFee').value)||0,fx:Number($('mFx').value)||fx};if(!t.date||!t.symbol||!t.qty||!t.price){alert('日付・銘柄・数量・単価を入力してください');return}trades.push(t);save();render();$('mSymbol').value='';$('mQty').value='';$('mPrice').value='';};
+$('saveFx').onclick=()=>{fx=Number($('fxNow').value)||150;save();render();alert('為替レートを保存しました')};
+$('csvFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;let buf=await f.arrayBuffer(),txt;try{txt=new TextDecoder('shift-jis').decode(buf);if((txt.match(/\uFFFD/g)||[]).length>3)txt=new TextDecoder('utf-8').decode(buf)}catch{txt=new TextDecoder().decode(buf)};let lines=txt.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim());let parseLine=line=>{let out=[],v='',q=false;for(let i=0;i<line.length;i++){let ch=line[i];if(ch==='"'){if(q&&line[i+1]==='"'){v+='"';i++}else q=!q}else if(ch===','&&!q){out.push(v);v=''}else v+=ch}out.push(v);return out};headers=parseLine(lines[0]).map(x=>x.trim());pendingRows=lines.slice(1).map(parseLine);$('mapping').classList.remove('hide');let fields=[['date','取引日',['日付','約定日','取引日','注文日']],['symbol','銘柄',['銘柄','銘柄名','ティッカー','銘柄コード']],['side','売買区分',['売買','売買区分','取引区分','取引']],['qty','数量',['数量','約定数量','株数']],['price','単価',['単価','約定単価','約定価格','価格']],['currency','通貨',['通貨','通貨コード','取引通貨']],['fee','手数料',['手数料','委託手数料','諸経費']],['fx','為替レート',['為替','為替レート','適用為替']]];let opts='<option value="">選択しない</option>'+headers.map((h,i)=>`<option value="${i}">${esc(h)}</option>`).join('');$('mapFields').innerHTML=fields.map(([k,label,aliases])=>{let ix=headers.findIndex(h=>aliases.some(a=>h.includes(a)));return `<div><label>${label}</label><select data-map="${k}">${opts}</select></div>`}).join('');fields.forEach(([k,label,aliases])=>{let ix=headers.findIndex(h=>aliases.some(a=>h.includes(a)));if(ix>=0)document.querySelector(`[data-map="${k}"]`).value=ix;});};
+$('cancelImport').onclick=()=>{$('mapping').classList.add('hide');$('csvFile').value=''};
+$('doImport').onclick=()=>{let m={};document.querySelectorAll('[data-map]').forEach(x=>m[x.dataset.map]=x.value===''?null:Number(x.value));if(['date','symbol','side','qty','price'].some(k=>m[k]===null)){alert('取引日・銘柄・売買区分・数量・単価は必須です');return}let added=0;for(let row of pendingRows){let val=k=>m[k]===null?'':row[m[k]];let side=String(val('side')).toUpperCase();side=/売|SELL|S/.test(side)?'SELL':/買|BUY|B/.test(side)?'BUY':'';let currency=String(val('currency')||'USD').toUpperCase();currency=currency.includes('JPY')||currency.includes('円')?'JPY':'USD';let clean=x=>Number(String(x).replace(/[,\s¥$円株]/g,'').replace(/[△▲]/g,'-'));let t={date:parseDate(val('date')),symbol:String(val('symbol')).trim(),side,qty:clean(val('qty')),price:clean(val('price')),currency,fee:clean(val('fee'))||0,fx:clean(val('fx'))||fx};if(t.date&&t.symbol&&side&&t.qty>0&&t.price>=0){trades.push(t);added++}}save();render();$('mapping').classList.add('hide');alert(`${added}件を取り込みました。内容を売買履歴で確認してください。`)};
+$('export').onclick=()=>{let blob=new Blob([JSON.stringify({trades,prices,fx},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='stocknote-backup.json';a.click();URL.revokeObjectURL(a.href)};
+$('clear').onclick=()=>{if(confirm('取引履歴・価格設定をすべて削除します。よろしいですか？')){trades=[];prices={};save();render()}};
+$('mDate').value=new Date().toISOString().slice(0,10);render();
+</script></body></html>
