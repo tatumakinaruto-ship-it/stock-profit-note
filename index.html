@@ -111,4 +111,5 @@ $('doImport').onclick=()=>{let m={};document.querySelectorAll('[data-map]').forE
 $('export').onclick=()=>{let blob=new Blob([JSON.stringify({trades,prices,fx},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='stocknote-backup.json';a.click();URL.revokeObjectURL(a.href)};
 $('clear').onclick=()=>{if(confirm('取引履歴・価格設定をすべて削除します。よろしいですか？')){trades=[];prices={};save();render()}};
 $('mDate').value=new Date().toISOString().slice(0,10);render();
+<script src="./restore-json.js?v=1"></script>
 </script></body></html>
