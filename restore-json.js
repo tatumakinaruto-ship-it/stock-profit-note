@@ -1,11 +1,11 @@
-/* Stock Profit Note: JSON restore add-on with portfolio enhancements.
-   Existing LocalStorage keys and data structures are preserved. */
+/* Stock Profit Note: JSON backup restore and portfolio display enhancements.
+   Keeps existing LocalStorage keys and transaction records unchanged. */
 (function () {
   'use strict';
+
   function init() {
     const importPanel = document.getElementById('import');
     if (!importPanel) return;
-
     if (!document.getElementById('jsonRestoreCard')) {
       const card = document.createElement('div');
       card.className = 'card';
@@ -16,12 +16,13 @@
         <label class="filebtn">JSONファイルを選択<input id="jsonRestoreFile" type="file" accept=".json,application/json"></label>
         <p id="jsonRestoreInfo" class="muted">まだファイルは選択されていません。</p>
         <div class="actions"><button type="button" id="jsonMergeBtn" disabled>既存データに追加</button><button type="button" class="secondary" id="jsonReplaceBtn" disabled>バックアップで置き換え</button></div>
-        <p class="muted">追加では同じ取引が重複する場合があります。置き換えではバックアップに含まれる取引・価格・為替・預かり金で復元します。</p>`;
+        <p class="muted">追加では同じ取引が重複する場合があります。置き換えではバックアップ内容を復元します。復元前のデータはJSONで保存されます。</p>`;
       importPanel.appendChild(card);
       setupRestore();
     }
-
     setupPortfolioMetrics();
+    setupImportedTradeCash();
+    setupQuoteFallback();
   }
 
   function setupRestore() {
@@ -30,25 +31,25 @@
     const mergeBtn = document.getElementById('jsonMergeBtn');
     const replaceBtn = document.getElementById('jsonReplaceBtn');
     let parsed = null;
-
     function validTrade(t) {
       return t && typeof t === 'object' && typeof t.date === 'string' && typeof t.symbol === 'string' &&
-        ['BUY', 'SELL'].includes(String(t.side).toUpperCase()) && Number.isFinite(Number(t.qty)) &&
-        Number(t.qty) > 0 && Number.isFinite(Number(t.price)) && Number(t.price) >= 0;
+        ['BUY', 'SELL'].includes(String(t.side).toUpperCase()) && Number.isFinite(Number(t.qty)) && Number(t.qty) > 0 &&
+        Number.isFinite(Number(t.price)) && Number(t.price) >= 0;
     }
     function parseBackup(obj) {
       const backupTrades = Array.isArray(obj) ? obj : obj && obj.trades;
       if (!Array.isArray(backupTrades) || !backupTrades.every(validTrade)) throw new Error('JSONの形式が違うか、取引データがありません。');
+      const hasCash = !!(obj && !Array.isArray(obj) && Object.prototype.hasOwnProperty.call(obj, 'cashBalance'));
+      const cashValue = hasCash && obj.cashBalance !== null && obj.cashBalance !== '' && Number.isFinite(Number(obj.cashBalance)) ? Number(obj.cashBalance) : null;
       return {
         trades: backupTrades,
         prices: obj && !Array.isArray(obj) && obj.prices && typeof obj.prices === 'object' ? obj.prices : {},
-        fx: obj && !Array.isArray(obj) && Number.isFinite(Number(obj.fx)) ? Number(obj.fx) : null,
-        cashBalance: obj && !Array.isArray(obj) && Number.isFinite(Number(obj.cashBalance)) ? Number(obj.cashBalance) : null,
-        hasCashBalance: !!(obj && !Array.isArray(obj) && Object.prototype.hasOwnProperty.call(obj, 'cashBalance')),
+        fx: obj && !Array.isArray(obj) && obj.fx !== null && Number.isFinite(Number(obj.fx)) ? Number(obj.fx) : null,
+        cashBalance: cashValue,
+        hasCashBalance: hasCash,
         cashLedger: obj && !Array.isArray(obj) && Array.isArray(obj.cashLedger) ? obj.cashLedger : null
       };
     }
-
     fileInput.addEventListener('change', async function () {
       parsed = null;
       mergeBtn.disabled = true;
@@ -60,11 +61,8 @@
         info.textContent = `${parsed.trades.length}件の取引を読み込みました。追加または置き換えを選択してください。`;
         mergeBtn.disabled = false;
         replaceBtn.disabled = false;
-      } catch (error) {
-        info.textContent = `読み込みに失敗しました: ${error.message}`;
-      }
+      } catch (error) { info.textContent = `読み込みに失敗しました: ${error.message}`; }
     });
-
     function currentData() {
       return {
         trades: JSON.parse(localStorage.getItem('stocknote_trades') || '[]'),
@@ -98,8 +96,7 @@
       if (!parsed || !confirm(`バックアップの${parsed.trades.length}件を現在の取引履歴に追加します。続けますか？`)) return;
       const current = currentData();
       apply({ trades: current.trades.concat(parsed.trades), prices: Object.assign({}, current.prices, parsed.prices),
-        fx: parsed.fx === null ? current.fx : parsed.fx,
-        cashBalance: parsed.hasCashBalance ? parsed.cashBalance : current.cashBalance,
+        fx: parsed.fx === null ? current.fx : parsed.fx, cashBalance: parsed.hasCashBalance ? parsed.cashBalance : current.cashBalance,
         hasCashBalance: parsed.hasCashBalance, cashLedger: parsed.cashLedger || current.cashLedger });
     });
     replaceBtn.addEventListener('click', function () {
@@ -115,7 +112,6 @@
     const dashboardGrid = document.querySelector('#dash .grid');
     const stockHeader = document.querySelector('#stocks table thead tr');
     if (!dashboardGrid || !stockHeader || typeof render !== 'function') return;
-
     if (!document.getElementById('stockInvestmentTotal')) {
       const investmentCard = document.createElement('div');
       investmentCard.className = 'card metric';
@@ -132,34 +128,70 @@
       th.dataset.returnHeader = 'true';
       stockHeader.appendChild(th);
     }
-
     const originalRender = render;
     render = function () {
       originalRender();
       const calculated = calc();
-      const investment = calculated.holdings.reduce((sum, h) => {
-        const rate = h.cur === 'USD' ? Number(fx || 0) : 1;
-        return sum + Number(h.cp || 0) * Number(h.qty || 0) * rate;
-      }, 0);
-      const total = investment + (cashBalance === null ? 0 : Number(cashBalance || 0));
+      const investment = calculated.holdings.reduce((sum, h) => sum + Number(h.cp || 0) * Number(h.qty || 0) *
+        (h.cur === 'USD' ? Number(fx || 0) : 1), 0);
       const investmentEl = document.getElementById('stockInvestmentTotal');
       const totalEl = document.getElementById('totalAssets');
       if (investmentEl) investmentEl.textContent = fmt(investment);
-      if (totalEl) totalEl.textContent = fmt(total);
-
-      const rows = document.querySelectorAll('#stockRows tr');
-      rows.forEach((row, index) => {
+      if (totalEl) totalEl.textContent = fmt(investment + (cashBalance === null ? 0 : Number(cashBalance || 0)));
+      document.querySelectorAll('#stockRows tr').forEach((row, index) => {
         const h = calculated.holdings[index];
         if (!h || row.cells.length > 4) return;
         const marketJpy = Number(h.cp || 0) * Number(h.qty || 0) * (h.cur === 'USD' ? Number(fx || 0) : 1);
-        const costBasisJpy = marketJpy - Number(h.unrealJ || 0);
-        const percent = costBasisJpy > 0 ? Number(h.unrealJ || 0) / costBasisJpy * 100 : null;
+        const basisJpy = marketJpy - Number(h.unrealJ || 0);
+        const percent = basisJpy > 0 ? Number(h.unrealJ || 0) / basisJpy * 100 : null;
         const cell = row.insertCell(-1);
         cell.className = percent === null ? '' : (percent > 0 ? 'pos' : percent < 0 ? 'neg' : '');
         cell.textContent = percent === null ? '—' : `${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%`;
       });
     };
     render();
+  }
+
+  function setupImportedTradeCash() {
+    const importButton = document.getElementById('doImport');
+    if (!importButton || importButton.dataset.cashAccountingReady) return;
+    importButton.dataset.cashAccountingReady = 'true';
+    importButton.addEventListener('click', function () {
+      const before = new Set(trades);
+      setTimeout(function () {
+        if (cashBalance === null) return;
+        let changed = false;
+        trades.forEach(function (trade) {
+          if (before.has(trade) || trade.cashApplied) return;
+          applyCashTrade(trade);
+          changed = true;
+        });
+        if (changed) { save(); render(); }
+      }, 0);
+    }, true);
+  }
+
+  function setupQuoteFallback() {
+    if (window.__stocknoteQuoteFallbackInstalled || typeof window.fetch !== 'function') return;
+    window.__stocknoteQuoteFallbackInstalled = true;
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async function (input, options) {
+      try {
+        const response = await nativeFetch(input, options);
+        if (response.ok) return response;
+      } catch (error) {
+        if (options && options.signal && options.signal.aborted) throw error;
+      }
+      const requested = typeof input === 'string' ? input : input.url;
+      let target = requested;
+      if (requested.startsWith('https://proxy.cors.dev/')) target = requested.slice('https://proxy.cors.dev/'.length);
+      else if (requested.startsWith('https://corsproxy.io/?url=')) target = decodeURIComponent(requested.slice('https://corsproxy.io/?url='.length));
+      else if (requested.startsWith('https://api.allorigins.win/raw?url=')) target = decodeURIComponent(requested.slice('https://api.allorigins.win/raw?url='.length));
+      if (!target.startsWith('https://query1.finance.yahoo.com/')) throw new Error('株価取得に失敗しました');
+      const response = await nativeFetch('https://corsproxy.io/?url=' + encodeURIComponent(target), options);
+      if (!response.ok) throw new Error('株価取得に失敗しました (HTTP ' + response.status + ')');
+      return response;
+    };
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
