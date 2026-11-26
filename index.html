@@ -32,7 +32,7 @@ button,.filebtn{border:0;background:var(--blue);color:white;padding:11px 14px;bo
 <div class="metric"><small>保有銘柄数</small><strong id="holdingCount">0</strong></div>
 </div><p class="muted">勝率・平均利益/損失はFIFO方式で計算した決済ロット単位です。</p></div>
 <div class="card"><h2>月別確定損益（JPY換算）</h2><div id="monthly" class="empty">取引履歴を読み込むと表示されます。</div></div>
-<div class="card"><h2>含み損益の設定</h2><p class="muted">保有銘柄ごとに現在価格を入力すると含み損益を計算します。為替レートは下の設定で指定します。</p><div id="priceInputs"></div></div>
+<div class="card"><h2>含み損益・株価更新</h2><p class="muted">日本時間の朝7時以降、当日初めてアプリを開いたときに株価とUSD/JPYを自動取得します。自動取得は米国株・日本株に対応します。価格取得元はYahoo Financeの公開チャートデータで、リアルタイム配信や取得成功を保証するものではありません。</p><div id="priceUpdateStatus" class="notice" style="margin-bottom:10px">株価更新状況を確認しています。</div><div class="actions"><button id="refreshPrices" type="button">株価を今すぐ更新</button></div><p class="muted" id="priceUpdatedAt">最終取得：未取得</p><div id="priceInputs"></div></div>
 </section>
 <section id="stocks" class="panel"><div class="card"><h2>銘柄別損益</h2><div class="scroll"><table><thead><tr><th>銘柄</th><th>保有数量</th><th>確定損益(JPY)</th><th>含み損益(JPY)</th></tr></thead><tbody id="stockRows"></tbody></table></div><div id="stockEmpty" class="empty">取引履歴がありません。</div></div></section>
 <section id="history" class="panel"><div class="card"><h2>売買履歴</h2><div class="scroll"><table><thead><tr><th>日付</th><th>銘柄</th><th>売買</th><th>数量</th><th>単価</th><th>通貨</th><th>操作</th></tr></thead><tbody id="historyRows"></tbody></table></div><div id="historyEmpty" class="empty">取引履歴がありません。</div></div></section>
@@ -67,7 +67,7 @@ function calc(){
  if(t.side==='BUY'){lots[sym].push({qty,price,feePer:fee/(qty||1),currency:cur,fx:rate});}
  else {let left=qty;while(left>1e-8&&lots[sym].length){let lot=lots[sym][0],take=Math.min(left,lot.qty),gross=(price-lot.price)*take-(lot.feePer+fee/(qty||1))*take;let r=cur==='USD'?gross*rate:gross;realized.push({date:t.date,symbol:sym,pnl:r,pnlU:cur==='USD'?gross:null,currency:cur});totals[sym].realJ+=r;if(cur==='USD')totals[sym].realU+=gross;lot.qty-=take;left-=take;if(lot.qty<1e-8)lots[sym].shift();}}
  }
- for(const [sym,arr] of Object.entries(lots)){let qty=arr.reduce((s,l)=>s+l.qty,0);let cost=arr.reduce((s,l)=>s+l.qty*l.price,0);let cur=arr[0]?.currency||'USD';let avg=qty?cost/qty:0;let cp=Number(prices[sym]||0);let u=cp?arr.reduce((s,l)=>s+(cp-l.price)*l.qty,0):0;let rate=cur==='USD'?fx:1;totals[sym].qty=qty;totals[sym].avg=avg;totals[sym].unrealJ=u*rate;totals[sym].unrealU=cur==='USD'?u:0;totals[sym].currency=cur;holdings.push({symbol:sym,qty,avg,cur,cp,unrealJ:u*rate,realJ:totals[sym].realJ});}
+ for(const [sym,arr] of Object.entries(lots)){let qty=arr.reduce((s,l)=>s+l.qty,0);let cost=arr.reduce((s,l)=>s+l.qty*l.price,0);let cur=arr[0]?.currency||'USD';let avg=qty?cost/qty:0;let cp=Number(prices[sym]||0);let u=cp?arr.reduce((s,l)=>s+(cp-l.price)*l.qty,0):0;let rate=cur==='USD'?fx:1;totals[sym].qty=qty;totals[sym].avg=avg;totals[sym].unrealJ=u*rate;totals[sym].unrealU=cur==='USD'?u:0;totals[sym].currency=cur;holdings.push({symbol:sym,qty,avg,cur,cp,unrealJ:u*rate,unrealU:cur==='USD'?u:0,realJ:totals[sym].realJ});}
  realized.forEach(r=>{let m=r.date.slice(0,7);byMonth[m]=(byMonth[m]||0)+r.pnl});
  return {totals,realized,byMonth,holdings};
 }
@@ -78,7 +78,7 @@ function render(){let c=calc(),rj=Object.values(c.totals).reduce((s,x)=>s+x.real
  $('stockRows').innerHTML=c.holdings.map(x=>`<tr><td>${esc(x.symbol)}</td><td>${x.qty.toLocaleString()}</td><td class="${cls(x.realJ)}">${fmt(x.realJ)}</td><td class="${cls(x.unrealJ)}">${x.cp?fmt(x.unrealJ):'価格未設定'}</td></tr>`).join('');$('stockEmpty').classList.toggle('hide',c.holdings.length>0);
  $('historyRows').innerHTML=trades.map((t,i)=>({t,i})).sort((a,b)=>b.t.date.localeCompare(a.t.date)).map(({t,i})=>`<tr><td>${esc(t.date)}</td><td>${esc(t.symbol)}</td><td>${t.side==='BUY'?'買付':'売却'}</td><td>${Number(t.qty).toLocaleString()}</td><td>${Number(t.price).toLocaleString()}</td><td>${esc(t.currency)}</td><td class="history-actions"><button class="secondary mini" data-edit="${i}">編集</button><button class="danger mini" data-delete="${i}">削除</button></td></tr>`).join('');$('historyEmpty').classList.toggle('hide',trades.length>0);
  $('priceInputs').innerHTML=c.holdings.filter(x=>x.qty>0).map(x=>`<div class="row" style="margin:8px 0"><div><label>${esc(x.symbol)} 現在価格 (${x.cur})</label><input type="number" step="any" data-price="${esc(x.symbol)}" value="${prices[x.symbol]||''}" placeholder="現在価格"></div><div style="display:flex;align-items:end"><button class="secondary" onclick="setPrice('${esc(x.symbol)}')">価格を保存</button></div></div>`).join('')||'<div class="empty">保有銘柄がありません。</div>';
- $('fxNow').value=fx;
+ $('fxNow').value=fx;updatePriceMeta();
 }
 function setPrice(sym){let el=document.querySelector(`[data-price="${CSS.escape(sym)}"]`);prices[sym]=Number(el.value);save();render()}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -110,6 +110,30 @@ $('doImport').onclick=()=>{let m={};document.querySelectorAll('[data-map]').forE
 $('export').onclick=()=>{let blob=new Blob([JSON.stringify({trades,prices,fx},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='stocknote-backup.json';a.click();URL.revokeObjectURL(a.href)};
 $('clear').onclick=()=>{if(confirm('取引履歴・価格設定をすべて削除します。よろしいですか？')){trades=[];prices={};save();render()}};
 $('mDate').value=new Date().toISOString().slice(0,10);render();
+
+// Daily quote refresh: after 07:00 Japan time, on the first app open of each local calendar day.
+const PRICE_DATE_KEY='stocknote_price_updated_date';
+const PRICE_TIME_KEY='stocknote_price_updated_at';
+const PRICE_NOTE_KEY='stocknote_price_update_note';
+function japanDateKey(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}
+function japanHour(){return Number(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Tokyo',hour:'2-digit',hourCycle:'h23'}).format(new Date()))}
+function updatePriceMeta(){const at=localStorage.getItem(PRICE_TIME_KEY);$('priceUpdatedAt').textContent='最終取得：'+(at?new Date(at).toLocaleString('ja-JP'):'未取得');const note=localStorage.getItem(PRICE_NOTE_KEY);if(note)$('priceUpdateStatus').textContent=note;}
+function yahooSymbol(symbol,currency){const s=String(symbol).trim().toUpperCase();if(currency==='JPY'&&/^\d{4,5}$/.test(s))return s+'.T';return s;}
+async function yahooQuote(symbol){const yahooUrl='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbol)+'?range=1d&interval=1d';const url='https://proxy.cors.dev/'+yahooUrl;const response=await fetch(url,{cache:'no-store',credentials:'omit'});if(!response.ok)throw new Error(symbol+' の株価取得に失敗（HTTP '+response.status+'）');const json=await response.json();const result=json?.chart?.result?.[0];const price=Number(result?.meta?.regularMarketPrice??result?.indicators?.quote?.[0]?.close?.filter(v=>v!=null).slice(-1)[0]);if(!Number.isFinite(price)||price<=0)throw new Error(symbol+' の価格データがありません');return price;}
+let priceUpdateBusy=false;
+async function refreshMarketPrices(manual=false){if(priceUpdateBusy)return;const holdings=calc().holdings.filter(h=>h.qty>0);if(!holdings.length){$('priceUpdateStatus').textContent='保有銘柄がないため、株価取得は行いません。';return;}priceUpdateBusy=true;$('refreshPrices').disabled=true;$('priceUpdateStatus').textContent='株価と為替を取得しています…';let successes=0,failures=[];try{
+ const fxNeeded=holdings.some(h=>h.cur==='USD');let fxPromise=fxNeeded?yahooQuote('JPY=X'):Promise.resolve(fx);
+ const results=await Promise.all(holdings.map(async h=>{const ticker=yahooSymbol(h.symbol,h.cur);try{return {h,price:await yahooQuote(ticker)}}catch(error){return {h,error}}}));
+ const fxResult=await fxPromise.then(value=>({value})).catch(error=>({error}));
+ for(const item of results){if(item.price){prices[item.h.symbol]=item.price;successes++}else failures.push(item.h.symbol+': '+(item.error?.message||'取得失敗'));}
+ if(fxNeeded){if(fxResult.value&&Number.isFinite(fxResult.value)&&fxResult.value>0){fx=fxResult.value;localStorage.setItem('stocknote_fx',String(fx));$('fxNow').value=fx;$('fxNote').value='自動取得（Yahoo Finance）'}else failures.push('USD/JPY: '+(fxResult.error?.message||'取得失敗'));}
+ if(successes){save();const now=new Date().toISOString();localStorage.setItem(PRICE_DATE_KEY,japanDateKey());localStorage.setItem(PRICE_TIME_KEY,now);}
+ const message=failures.length?`取得完了：${successes}/${holdings.length}銘柄。未取得：${failures.join('、')}`:`取得完了：${successes}銘柄。USD/JPY ${fxNeeded?'も更新しました。':'は対象外です。'}`;
+ localStorage.setItem(PRICE_NOTE_KEY,message);$('priceUpdateStatus').textContent=message;render();
+ }catch(error){const message='株価を取得できませんでした。前回の価格を維持しています。通信環境を確認して再試行してください。';localStorage.setItem(PRICE_NOTE_KEY,message+' ('+error.message+')');$('priceUpdateStatus').textContent=message;}finally{priceUpdateBusy=false;$('refreshPrices').disabled=false;updatePriceMeta();}}
+function maybeDailyPriceRefresh(){if(japanHour()<7){$('priceUpdateStatus').textContent='毎朝7時以降の初回起動時に株価を自動更新します。';return;}if(localStorage.getItem(PRICE_DATE_KEY)===japanDateKey())return;refreshMarketPrices(false);}
+$('refreshPrices').addEventListener('click',()=>refreshMarketPrices(true));
+updatePriceMeta();maybeDailyPriceRefresh();
 </script>
-<script src="./restore-json.js?v=2"></script>
+<script src="./restore-json.js?v=3"></script>
 </body></html>
