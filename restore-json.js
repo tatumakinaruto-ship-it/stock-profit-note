@@ -1,73 +1,113 @@
-// JSON backup restore add-on for 株式損益ノート
-(() => {
-  const section = document.getElementById('import');
-  if (!section || document.getElementById('jsonRestoreCard')) return;
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.id = 'jsonRestoreCard';
-  card.innerHTML = `
-    <h2>4. JSONバックアップを復元</h2>
-    <p class="muted">「取引データを書き出す」で保存した stocknote-backup.json を選択してください。</p>
-    <label class="filebtn">JSONバックアップを選択<input id="jsonBackupFile" type="file" accept=".json,application/json"></label>
-    <div id="jsonBackupInfo" class="muted" style="margin-top:8px">まだファイルが選択されていません。</div>
-    <div class="actions">
-      <button id="jsonMerge" disabled>既存データに追加</button>
-      <button id="jsonReplace" class="danger" disabled>バックアップで置き換え</button>
-    </div>
-    <p class="muted">追加：バックアップ内の取引を現在の履歴に追加します。置き換え：現在の取引・価格・為替をバックアップ内容に置き換えます。実行前に確認します。</p>`;
-  section.insertBefore(card, section.firstChild);
+/* Stock Profit Note: safe JSON backup restore add-on.
+   Loads after the main app and does not modify tab navigation or existing app handlers. */
+(function () {
+  'use strict';
+  function init() {
+    const importPanel = document.getElementById('import');
+    if (!importPanel || document.getElementById('jsonRestoreCard')) return;
 
-  let backup = null;
-  const fileInput = document.getElementById('jsonBackupFile');
-  const info = document.getElementById('jsonBackupInfo');
-  const merge = document.getElementById('jsonMerge');
-  const replace = document.getElementById('jsonReplace');
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.id = 'jsonRestoreCard';
+    card.innerHTML = `
+      <h2>4. JSONバックアップを復元</h2>
+      <p class="muted">「取引データを書き出す」で保存した stocknote-backup.json を読み込みます。読み込み前に現在のデータを自動バックアップします。</p>
+      <label class="filebtn">JSONファイルを選択<input id="jsonRestoreFile" type="file" accept=".json,application/json"></label>
+      <p id="jsonRestoreInfo" class="muted">まだファイルは選択されていません。</p>
+      <div class="actions">
+        <button type="button" id="jsonMergeBtn" disabled>既存データに追加</button>
+        <button type="button" class="secondary" id="jsonReplaceBtn" disabled>バックアップで置き換え</button>
+      </div>
+      <p class="muted">追加では同じ取引が重複する場合があります。置き換えでは現在の取引・価格・為替設定がバックアップ内容に置き換わります。</p>`;
+    importPanel.appendChild(card);
 
-  fileInput.addEventListener('change', async () => {
-    backup = null;
-    merge.disabled = replace.disabled = true;
-    const file = fileInput.files && fileInput.files[0];
-    if (!file) { info.textContent = 'まだファイルが選択されていません。'; return; }
-    try {
-      const data = JSON.parse(await file.text());
-      if (!data || !Array.isArray(data.trades) || typeof data.prices !== 'object' || data.prices === null || !Number.isFinite(Number(data.fx))) {
-        throw new Error('このファイルは株式損益ノートのバックアップ形式ではありません。');
-      }
-      const valid = data.trades.every(t => t && typeof t.date === 'string' && typeof t.symbol === 'string' && ['BUY','SELL'].includes(t.side) && Number(t.qty) > 0 && Number(t.price) >= 0 && ['USD','JPY'].includes(t.currency));
-      if (!valid) throw new Error('取引データの形式が正しくありません。');
-      backup = { trades: data.trades, prices: data.prices, fx: Number(data.fx) };
-      info.textContent = `読み込みOK：取引 ${backup.trades.length}件、現在価格 ${Object.keys(backup.prices).length}銘柄、USD/JPY ${backup.fx}`;
-      merge.disabled = replace.disabled = false;
-    } catch (err) {
-      info.textContent = '読み込み失敗：' + (err && err.message ? err.message : 'JSONを確認してください。');
+    const fileInput = document.getElementById('jsonRestoreFile');
+    const info = document.getElementById('jsonRestoreInfo');
+    const mergeBtn = document.getElementById('jsonMergeBtn');
+    const replaceBtn = document.getElementById('jsonReplaceBtn');
+    let parsed = null;
+
+    function validTrade(t) {
+      return t && typeof t === 'object' && typeof t.date === 'string' &&
+        typeof t.symbol === 'string' && ['BUY', 'SELL'].includes(String(t.side).toUpperCase()) &&
+        Number.isFinite(Number(t.qty)) && Number(t.qty) > 0 &&
+        Number.isFinite(Number(t.price)) && Number(t.price) >= 0;
     }
-  });
+    function parseBackup(obj) {
+      // Supports the app's normal export object and a plain trades array.
+      const trades = Array.isArray(obj) ? obj : obj && obj.trades;
+      if (!Array.isArray(trades) || !trades.every(validTrade)) {
+        throw new Error('JSONの形式が違うか、取引データが正しくありません。株式損益ノートから書き出したJSONを選んでください。');
+      }
+      const prices = !Array.isArray(obj) && obj.prices && typeof obj.prices === 'object' ? obj.prices : {};
+      const fx = !Array.isArray(obj) && Number.isFinite(Number(obj.fx)) && Number(obj.fx) > 0 ? Number(obj.fx) : 150;
+      return { trades, prices, fx };
+    }
+    fileInput.addEventListener('change', async function () {
+      parsed = null;
+      mergeBtn.disabled = true;
+      replaceBtn.disabled = true;
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) { info.textContent = 'まだファイルは選択されていません。'; return; }
+      try {
+        const obj = JSON.parse(await file.text());
+        parsed = parseBackup(obj);
+        info.textContent = `${file.name}：${parsed.trades.length}件の取引を確認しました。復元方法を選んでください。`;
+        mergeBtn.disabled = false;
+        replaceBtn.disabled = false;
+      } catch (err) {
+        info.textContent = err.message || 'JSONファイルを読み込めませんでした。';
+      }
+    });
 
-  const current = () => ({
-    trades: JSON.parse(localStorage.getItem('stocknote_trades') || '[]'),
-    prices: JSON.parse(localStorage.getItem('stocknote_prices') || '{}'),
-    fx: Number(localStorage.getItem('stocknote_fx') || 150)
-  });
-  const store = data => {
-    localStorage.setItem('stocknote_trades', JSON.stringify(data.trades));
-    localStorage.setItem('stocknote_prices', JSON.stringify(data.prices));
-    localStorage.setItem('stocknote_fx', String(data.fx));
-  };
+    function currentData() {
+      return {
+        trades: JSON.parse(localStorage.getItem('stocknote_trades') || '[]'),
+        prices: JSON.parse(localStorage.getItem('stocknote_prices') || '{}'),
+        fx: Number(localStorage.getItem('stocknote_fx') || 150)
+      };
+    }
+    function writeData(data) {
+      localStorage.setItem('stocknote_trades', JSON.stringify(data.trades));
+      localStorage.setItem('stocknote_prices', JSON.stringify(data.prices || {}));
+      localStorage.setItem('stocknote_fx', String(Number(data.fx) || 150));
+    }
+    function saveSafetyBackup() {
+      const now = new Date();
+      const stamp = [now.getFullYear(), String(now.getMonth()+1).padStart(2,'0'), String(now.getDate()).padStart(2,'0'), '-', String(now.getHours()).padStart(2,'0'), String(now.getMinutes()).padStart(2,'0')].join('');
+      const blob = new Blob([JSON.stringify(currentData(), null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `stocknote-before-restore-${stamp}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    mergeBtn.addEventListener('click', function () {
+      if (!parsed) return;
+      if (!confirm(`バックアップの${parsed.trades.length}件を現在の取引履歴に追加します。続けますか？\n同じ取引が重複する可能性があります。`)) return;
+      try {
+        const current = currentData();
+        saveSafetyBackup();
+        writeData({ trades: current.trades.concat(parsed.trades), prices: Object.assign({}, current.prices, parsed.prices), fx: parsed.fx || current.fx });
+        alert('追加しました。画面を再読み込みします。');
+        location.reload();
+      } catch (err) { alert('復元できませんでした：' + err.message); }
+    });
+    replaceBtn.addEventListener('click', function () {
+      if (!parsed) return;
+      if (!confirm(`現在の取引履歴${currentData().trades.length}件を、バックアップの${parsed.trades.length}件で置き換えます。\n実行前に現在のデータをJSONで自動保存します。続けますか？`)) return;
+      try {
+        saveSafetyBackup();
+        writeData(parsed);
+        alert('置き換えました。画面を再読み込みします。');
+        location.reload();
+      } catch (err) { alert('復元できませんでした：' + err.message); }
+    });
+  }
 
-  merge.addEventListener('click', () => {
-    if (!backup) return;
-    const now = current();
-    if (!confirm(`バックアップの${backup.trades.length}件を、現在の${now.trades.length}件に追加します。重複チェックは行いません。続けますか？`)) return;
-    store({ trades: now.trades.concat(backup.trades), prices: { ...now.prices, ...backup.prices }, fx: backup.fx });
-    alert('バックアップを追加しました。画面を更新します。');
-    location.reload();
-  });
-
-  replace.addEventListener('click', () => {
-    if (!backup) return;
-    if (!confirm(`現在の取引${current().trades.length}件を、バックアップの${backup.trades.length}件で置き換えます。よろしいですか？`)) return;
-    store(backup);
-    alert('バックアップから復元しました。画面を更新します。');
-    location.reload();
-  });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, { once: true });
+  } else {
+    init();
+  }
 })();
