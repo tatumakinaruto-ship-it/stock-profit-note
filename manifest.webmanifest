@@ -2,7 +2,7 @@
   "name": "株式損益ノート",
   "short_name": "損益ノート",
   "lang": "ja",
-  "start_url": "./?v=4",
+  "start_url": "./?v=7",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f4f6fa",
