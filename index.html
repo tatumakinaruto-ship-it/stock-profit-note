@@ -24,6 +24,8 @@ button,.filebtn{border:0;background:var(--blue);color:white;padding:11px 14px;bo
 <div class="card metric"><small>含み損益（JPY換算）</small><strong id="unrealJ">¥0</strong></div>
 <div class="card metric"><small>確定損益（USD建て）</small><strong id="realU">$0.00</strong></div>
 <div class="card metric"><small>含み損益（USD建て）</small><strong id="unrealU">$0.00</strong></div>
+<div class="card metric"><small>株式投資額合計（現在評価額）</small><strong id="stockValueTotal">¥0</strong></div>
+<div class="card metric"><small>総資産額（株式評価額＋預かり金）</small><strong id="totalAssets">預かり金未設定</strong></div>
 </div>
 <div class="card" id="cashCard"><h2>預かり金・使えるお金</h2><div class="metric"><small>現在の利用可能額（円換算）</small><strong id="cashBalanceDisplay">未設定</strong></div><p class="muted" id="cashHelp">最初にマネックス証券アプリの預かり金合計を入力してください。以後、新しく手動登録する売買を自動反映します。</p><label>現在の預かり金（円）</label><input id="cashBalanceInput" type="number" step="1" inputmode="numeric" placeholder="例：530000"><label>変更理由・メモ（任意）</label><input id="cashMemo" type="text" placeholder="例：証券口座へ入金／出金"><div class="actions"><button id="saveCashBalance" type="button">預かり金を更新</button></div><p class="muted">購入は購入代金＋手数料を差し引き、売却は売却代金－手数料を加算します。米ドル取引は取引時の為替レートで円換算します。過去のCSV取引は二重計上防止のため自動反映しません。</p><div id="cashLedger" class="muted"></div></div>
 <div class="card"><h2>売買成績</h2><div class="grid">
@@ -35,7 +37,7 @@ button,.filebtn{border:0;background:var(--blue);color:white;padding:11px 14px;bo
 <div class="card"><h2>月別確定損益（JPY換算）</h2><div id="monthly" class="empty">取引履歴を読み込むと表示されます。</div></div>
 <div class="card"><h2>含み損益・株価更新</h2><p class="muted">「株価を今すぐ更新」を押すたびに、保有中の米国株・日本株とUSD/JPYを取得します。自動更新は行いません。価格取得元はYahoo Financeの公開チャートデータで、リアルタイム配信や取得成功を保証するものではありません。</p><div id="priceUpdateStatus" class="notice" style="margin-bottom:10px">株価は手動更新できます。</div><div class="actions"><button id="refreshPrices" type="button">株価を今すぐ更新</button></div><p class="muted" id="priceUpdatedAt">最終取得：未取得</p><div id="priceInputs"></div></div>
 </section>
-<section id="stocks" class="panel"><div class="card"><h2>銘柄別損益</h2><div class="scroll"><table><thead><tr><th>銘柄</th><th>保有数量</th><th>確定損益(JPY)</th><th>含み損益(JPY)</th></tr></thead><tbody id="stockRows"></tbody></table></div><div id="stockEmpty" class="empty">取引履歴がありません。</div></div></section>
+<section id="stocks" class="panel"><div class="card"><h2>銘柄別損益</h2><div class="scroll"><table><thead><tr><th>銘柄</th><th>保有数量</th><th>確定損益(JPY)</th><th>含み損益(JPY)</th><th>取得時比(%)</th></tr></thead><tbody id="stockRows"></tbody></table></div><div id="stockEmpty" class="empty">取引履歴がありません。</div></div></section>
 <section id="history" class="panel"><div class="card"><h2>売買履歴</h2><div class="scroll"><table><thead><tr><th>日付</th><th>銘柄</th><th>売買</th><th>数量</th><th>単価</th><th>通貨</th><th>操作</th></tr></thead><tbody id="historyRows"></tbody></table></div><div id="historyEmpty" class="empty">取引履歴がありません。</div></div></section>
 <section id="import" class="panel">
 <div class="card"><h2>1. CSVファイルを読み込む</h2><p class="muted">マネックス証券から出力したCSVを選択してください。文字コードはUTF-8/Shift-JISを想定します。まずヘッダーを確認し、列の対応付けを行います。</p><label class="filebtn">CSVファイルを選択<input id="csvFile" type="file" accept=".csv,text/csv"></label><div id="mapping" class="hide">
@@ -57,6 +59,8 @@ if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.se
 const $=id=>document.getElementById(id);
 let trades=JSON.parse(localStorage.getItem('stocknote_trades')||'[]'), prices=JSON.parse(localStorage.getItem('stocknote_prices')||'{}'), fx=Number(localStorage.getItem('stocknote_fx')||150), pendingRows=[], headers=[];
 const CASH_KEY='stocknote_cash_balance',CASH_LEDGER_KEY='stocknote_cash_ledger';
+const PRICE_TIME_KEY='stocknote_price_updated_at';
+const PRICE_NOTE_KEY='stocknote_price_update_note';
 let cashBalance=localStorage.getItem(CASH_KEY)===null?null:Number(localStorage.getItem(CASH_KEY)),cashLedger=JSON.parse(localStorage.getItem(CASH_LEDGER_KEY)||'[]');
 const save=()=>{localStorage.setItem('stocknote_trades',JSON.stringify(trades));localStorage.setItem('stocknote_prices',JSON.stringify(prices));localStorage.setItem('stocknote_fx',String(fx));if(cashBalance===null)localStorage.removeItem(CASH_KEY);else localStorage.setItem(CASH_KEY,String(cashBalance));localStorage.setItem(CASH_LEDGER_KEY,JSON.stringify(cashLedger));};
 const fmt=(n,c='JPY')=>c==='USD'?'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'¥'+Math.round(n||0).toLocaleString('ja-JP');
@@ -74,15 +78,33 @@ function calc(){
  if(t.side==='BUY'){lots[sym].push({qty,price,feePer:fee/(qty||1),currency:cur,fx:rate});}
  else {let left=qty;while(left>1e-8&&lots[sym].length){let lot=lots[sym][0],take=Math.min(left,lot.qty),gross=(price-lot.price)*take-(lot.feePer+fee/(qty||1))*take;let r=cur==='USD'?gross*rate:gross;realized.push({date:t.date,symbol:sym,pnl:r,pnlU:cur==='USD'?gross:null,currency:cur});totals[sym].realJ+=r;if(cur==='USD')totals[sym].realU+=gross;lot.qty-=take;left-=take;if(lot.qty<1e-8)lots[sym].shift();}}
  }
- for(const [sym,arr] of Object.entries(lots)){let qty=arr.reduce((s,l)=>s+l.qty,0);let cost=arr.reduce((s,l)=>s+l.qty*l.price,0);let cur=arr[0]?.currency||'USD';let avg=qty?cost/qty:0;let cp=Number(prices[sym]||0);let u=cp?arr.reduce((s,l)=>s+(cp-l.price)*l.qty,0):0;let unrealJ=cp?(cur==='USD'?arr.reduce((s,l)=>s+(cp*fx-l.price*(Number(l.fx)||fx))*l.qty,0):u):0;totals[sym].qty=qty;totals[sym].avg=avg;totals[sym].unrealJ=unrealJ;totals[sym].unrealU=cur==='USD'?u:0;totals[sym].currency=cur;holdings.push({symbol:sym,qty,avg,cur,cp,unrealJ,unrealU:cur==='USD'?u:0,realJ:totals[sym].realJ});}
+ for(const [sym,arr] of Object.entries(lots)){
+  let qty=arr.reduce((s,l)=>s+l.qty,0);
+  let cost=arr.reduce((s,l)=>s+l.qty*l.price,0);
+  let cur=arr[0]?.currency||'USD';
+  let avg=qty?cost/qty:0;
+  let cp=Number(prices[sym]||0);
+  let costJ=arr.reduce((s,l)=>s+l.qty*l.price*(l.currency==='USD'?(Number(l.fx)||fx):1),0);
+  let marketValueJ=cp>0?qty*cp*(cur==='USD'?fx:1):0;
+  let u=cp?arr.reduce((s,l)=>s+(cp-l.price)*l.qty,0):0;
+  let unrealJ=cp>0?marketValueJ-costJ:0;
+  let returnPct=cp>0&&costJ>0?(marketValueJ-costJ)/costJ*100:null;
+  totals[sym].qty=qty;totals[sym].avg=avg;totals[sym].unrealJ=unrealJ;totals[sym].unrealU=cur==='USD'?u:0;totals[sym].currency=cur;
+  holdings.push({symbol:sym,qty,avg,cur,cp,unrealJ,unrealU:cur==='USD'?u:0,realJ:totals[sym].realJ,costJ,marketValueJ,returnPct});
+ }
  realized.forEach(r=>{let m=r.date.slice(0,7);byMonth[m]=(byMonth[m]||0)+r.pnl});
  return {totals,realized,byMonth,holdings};
 }
-function render(){let c=calc(),rj=Object.values(c.totals).reduce((s,x)=>s+x.realJ,0),uj=c.holdings.reduce((s,x)=>s+x.unrealJ,0),ru=Object.values(c.totals).reduce((s,x)=>s+x.realU,0),uu=c.holdings.reduce((s,x)=>s+x.unrealU,0);
+function render(){
+ let c=calc(),rj=Object.values(c.totals).reduce((s,x)=>s+x.realJ,0),uj=c.holdings.reduce((s,x)=>s+x.unrealJ,0),ru=Object.values(c.totals).reduce((s,x)=>s+x.realU,0),uu=c.holdings.reduce((s,x)=>s+x.unrealU,0);
  $('realJ').textContent=fmt(rj);$('realJ').className=cls(rj);$('unrealJ').textContent=fmt(uj);$('unrealJ').className=cls(uj);$('realU').textContent=fmt(ru,'USD');$('realU').className=cls(ru);$('unrealU').textContent=fmt(uu,'USD');$('unrealU').className=cls(uu);
+ const stockValue=c.holdings.reduce((s,x)=>s+x.marketValueJ,0);
+ $('stockValueTotal').textContent=fmt(stockValue);$('stockValueTotal').className='';
+ if(cashBalance===null){$('totalAssets').textContent='預かり金未設定';$('totalAssets').className='';}
+ else{$('totalAssets').textContent=fmt(stockValue+cashBalance);$('totalAssets').className='';}
  let wins=c.realized.filter(x=>x.pnl>0),loss=c.realized.filter(x=>x.pnl<0);$('winrate').textContent=c.realized.length?(wins.length/c.realized.length*100).toFixed(1)+'%':'—';$('avgwin').textContent=wins.length?fmt(wins.reduce((s,x)=>s+x.pnl,0)/wins.length):'—';$('avgloss').textContent=loss.length?fmt(loss.reduce((s,x)=>s+x.pnl,0)/loss.length):'—';$('holdingCount').textContent=c.holdings.filter(x=>x.qty>0).length;
  let months=Object.entries(c.byMonth).sort();if(months.length){let max=Math.max(1,...months.map(x=>Math.abs(x[1])));$('monthly').innerHTML=months.map(([m,v])=>`<div class="barrow"><b>${m}</b><div class="track"><div class="bar" style="width:${Math.abs(v)/max*100}%;background:${v<0?'#d04444':'#07865b'}"></div></div><span class="${cls(v)}">${fmt(v)}</span></div>`).join('')}else $('monthly').textContent='取引履歴を読み込むと表示されます。';
- $('stockRows').innerHTML=c.holdings.map(x=>`<tr><td>${esc(x.symbol)}</td><td>${x.qty.toLocaleString()}</td><td class="${cls(x.realJ)}">${fmt(x.realJ)}</td><td class="${cls(x.unrealJ)}">${x.cp?fmt(x.unrealJ):'価格未設定'}</td></tr>`).join('');$('stockEmpty').classList.toggle('hide',c.holdings.length>0);
+ $('stockRows').innerHTML=c.holdings.map(x=>{const pct=x.returnPct===null?'—':(x.returnPct>0?'+':'')+x.returnPct.toFixed(2)+'%';return `<tr><td>${esc(x.symbol)}</td><td>${x.qty.toLocaleString()}</td><td class="${cls(x.realJ)}">${fmt(x.realJ)}</td><td class="${cls(x.unrealJ)}">${x.cp?fmt(x.unrealJ):'価格未設定'}</td><td class="${x.returnPct===null?'':cls(x.returnPct)}">${pct}</td></tr>`}).join('');$('stockEmpty').classList.toggle('hide',c.holdings.length>0);
  $('historyRows').innerHTML=trades.map((t,i)=>({t,i})).sort((a,b)=>b.t.date.localeCompare(a.t.date)).map(({t,i})=>`<tr><td>${esc(t.date)}</td><td>${esc(t.symbol)}</td><td>${t.side==='BUY'?'買付':'売却'}</td><td>${Number(t.qty).toLocaleString()}</td><td>${Number(t.price).toLocaleString()}</td><td>${esc(t.currency)}</td><td class="history-actions"><button class="secondary mini" data-edit="${i}">編集</button><button class="danger mini" data-delete="${i}">削除</button></td></tr>`).join('');$('historyEmpty').classList.toggle('hide',trades.length>0);
  $('priceInputs').innerHTML=c.holdings.filter(x=>x.qty>0).map(x=>`<div class="row" style="margin:8px 0"><div><label>${esc(x.symbol)} 現在価格 (${x.cur})</label><input type="number" step="any" data-price="${esc(x.symbol)}" value="${prices[x.symbol]||''}" placeholder="現在価格"></div><div style="display:flex;align-items:end"><button class="secondary" onclick="setPrice('${esc(x.symbol)}')">価格を保存</button></div></div>`).join('')||'<div class="empty">保有銘柄がありません。</div>';
  $('fxNow').value=fx;renderCash();updatePriceMeta();
@@ -119,13 +141,12 @@ $('export').onclick=()=>{let blob=new Blob([JSON.stringify({trades,prices,fx,cas
 $('clear').onclick=()=>{if(confirm('取引履歴・価格・為替・預かり金をすべて削除します。よろしいですか？')){trades=[];prices={};cashBalance=null;cashLedger=[];save();render()}};
 $('mDate').value=new Date().toISOString().slice(0,10);render();
 
-// Manual-only market refresh. Every button press starts a fresh request.
-const PRICE_TIME_KEY='stocknote_price_updated_at',PRICE_NOTE_KEY='stocknote_price_update_note';function updatePriceMeta(){const at=localStorage.getItem(PRICE_TIME_KEY);$('priceUpdatedAt').textContent='最終取得：'+(at?new Date(at).toLocaleString('ja-JP'):'未取得');const note=localStorage.getItem(PRICE_NOTE_KEY);if(note)$('priceUpdateStatus').textContent=note}
+function updatePriceMeta(){const at=localStorage.getItem(PRICE_TIME_KEY);$('priceUpdatedAt').textContent='最終取得：'+(at?new Date(at).toLocaleString('ja-JP'):'未取得');const note=localStorage.getItem(PRICE_NOTE_KEY);if(note)$('priceUpdateStatus').textContent=note}
 function yahooSymbol(symbol,currency){const s=String(symbol).trim().toUpperCase();return currency==='JPY'&&/^\d{4,5}$/.test(s)?s+'.T':s}
 async function fetchWithTimeout(url,ms=12000){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),ms);try{return await fetch(url,{cache:'no-store',credentials:'omit',signal:controller.signal})}finally{clearTimeout(timer)}}
 async function yahooQuote(symbol){const target='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbol)+'?range=1d&interval=1d';const attempts=['https://proxy.cors.dev/'+target,'https://corsproxy.io/?url='+encodeURIComponent(target),'https://api.allorigins.win/raw?url='+encodeURIComponent(target)];let lastError;for(const url of attempts){try{const response=await fetchWithTimeout(url,12000);if(!response.ok)throw new Error('HTTP '+response.status);const json=await response.json(),result=json?.chart?.result?.[0],closes=result?.indicators?.quote?.[0]?.close||[],price=Number(result?.meta?.regularMarketPrice??closes.filter(v=>v!=null).slice(-1)[0]);if(!Number.isFinite(price)||price<=0)throw new Error('価格データなし');return price}catch(err){lastError=err}}throw new Error(symbol+'：取得失敗（'+(lastError?.name==='AbortError'?'通信タイムアウト':lastError?.message||'通信エラー')+'）')}
 let priceUpdateBusy=false;async function refreshMarketPrices(){if(priceUpdateBusy)return;const holdings=calc().holdings.filter(h=>h.qty>0);if(!holdings.length){$('priceUpdateStatus').textContent='保有銘柄がないため、株価取得は行いません。';return}priceUpdateBusy=true;$('refreshPrices').disabled=true;$('priceUpdateStatus').textContent='株価と為替を取得しています…';let successes=0,failures=[];const fxNeeded=holdings.some(h=>h.cur==='USD');try{const quoteTasks=holdings.map(async h=>{try{return{h,price:await yahooQuote(yahooSymbol(h.symbol,h.cur))}}catch(error){return{h,error}}});const fxTask=fxNeeded?yahooQuote('JPY=X').then(value=>({value})).catch(error=>({error})):Promise.resolve({value:fx});const [results,fxResult]=await Promise.all([Promise.all(quoteTasks),fxTask]);for(const item of results){if(Number.isFinite(item.price)&&item.price>0){prices[item.h.symbol]=item.price;successes++}else failures.push(item.h.symbol+': '+(item.error?.message||'取得失敗'))}if(fxNeeded){if(Number.isFinite(fxResult.value)&&fxResult.value>0){fx=fxResult.value;localStorage.setItem('stocknote_fx',String(fx));$('fxNow').value=fx;$('fxNote').value='自動取得（Yahoo Finance）'}else failures.push('USD/JPY: '+(fxResult.error?.message||'取得失敗'))}if(successes||fxResult.value){save();localStorage.setItem(PRICE_TIME_KEY,new Date().toISOString())}const message=failures.length?`更新終了：${successes}/${holdings.length}銘柄取得。${failures.join(' / ')}`:`更新完了：${successes}銘柄。${fxNeeded?'USD/JPYも更新しました。':'為替更新対象なし。'}`;localStorage.setItem(PRICE_NOTE_KEY,message);$('priceUpdateStatus').textContent=message;render()}catch(error){const message='更新に失敗しました：'+(error?.message||'予期しないエラー')+'。前回の価格は保持しています。';localStorage.setItem(PRICE_NOTE_KEY,message);$('priceUpdateStatus').textContent=message}finally{priceUpdateBusy=false;$('refreshPrices').disabled=false;updatePriceMeta()}}
-$('refreshPrices').addEventListener('click',refreshMarketPrices);updatePriceMeta();
+$('refreshPrices').onclick=refreshMarketPrices;updatePriceMeta();
 </script>
 <script src="./restore-json.js?v=5"></script>
 </body></html>
