@@ -74,7 +74,7 @@ function calc(){
  if(t.side==='BUY'){lots[sym].push({qty,price,feePer:fee/(qty||1),currency:cur,fx:rate});}
  else {let left=qty;while(left>1e-8&&lots[sym].length){let lot=lots[sym][0],take=Math.min(left,lot.qty),gross=(price-lot.price)*take-(lot.feePer+fee/(qty||1))*take;let r=cur==='USD'?gross*rate:gross;realized.push({date:t.date,symbol:sym,pnl:r,pnlU:cur==='USD'?gross:null,currency:cur});totals[sym].realJ+=r;if(cur==='USD')totals[sym].realU+=gross;lot.qty-=take;left-=take;if(lot.qty<1e-8)lots[sym].shift();}}
  }
- for(const [sym,arr] of Object.entries(lots)){let qty=arr.reduce((s,l)=>s+l.qty,0);let cost=arr.reduce((s,l)=>s+l.qty*l.price,0);let cur=arr[0]?.currency||'USD';let avg=qty?cost/qty:0;let cp=Number(prices[sym]||0);let u=cp?arr.reduce((s,l)=>s+(cp-l.price)*l.qty,0):0;let rate=cur==='USD'?fx:1;totals[sym].qty=qty;totals[sym].avg=avg;totals[sym].unrealJ=u*rate;totals[sym].unrealU=cur==='USD'?u:0;totals[sym].currency=cur;holdings.push({symbol:sym,qty,avg,cur,cp,unrealJ:u*rate,unrealU:cur==='USD'?u:0,realJ:totals[sym].realJ});}
+ for(const [sym,arr] of Object.entries(lots)){let qty=arr.reduce((s,l)=>s+l.qty,0);let cost=arr.reduce((s,l)=>s+l.qty*l.price,0);let cur=arr[0]?.currency||'USD';let avg=qty?cost/qty:0;let cp=Number(prices[sym]||0);let u=cp?arr.reduce((s,l)=>s+(cp-l.price)*l.qty,0):0;let unrealJ=cp?(cur==='USD'?arr.reduce((s,l)=>s+(cp*fx-l.price*(Number(l.fx)||fx))*l.qty,0):u):0;totals[sym].qty=qty;totals[sym].avg=avg;totals[sym].unrealJ=unrealJ;totals[sym].unrealU=cur==='USD'?u:0;totals[sym].currency=cur;holdings.push({symbol:sym,qty,avg,cur,cp,unrealJ,unrealU:cur==='USD'?u:0,realJ:totals[sym].realJ});}
  realized.forEach(r=>{let m=r.date.slice(0,7);byMonth[m]=(byMonth[m]||0)+r.pnl});
  return {totals,realized,byMonth,holdings};
 }
